@@ -1,7 +1,12 @@
 {
  "output": "hosts",
  "dnscache": "/tmp/.dnscache",
+ "vultrdns": "./.vultrdns",
  "target": "/etc/hosts",
  "vultr_key": "ABC123",
- "debug": false
+ "debug": false,
+ "server": false,
+ "client": "",
+ "listen": ":8080",
+ "interval": "5m"
 }

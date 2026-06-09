@@ -23,4 +23,33 @@ vultrunbound --output=hosts --target=/etc/hosts
 vultrunbound --output=unbound-control
 ```
 
+### Server
+
+Server mode keeps running, syncs entries from Vultr every five minutes by default,
+and caches the latest entries to `.vultrdns`.
+
+```
+vultrunbound --server --listen=:8080 --vultrdns=./.vultrdns
+```
+
+Endpoints:
+
+```
+GET /entries
+GET /hosts
+```
+
+`/entries` returns the JSON DNS entries. `/hosts` returns hosts-file text.
+Both responses include `X-ModifiedAt` with the `.vultrdns` cache file mtime.
+
+### Client
+
+Client mode pulls DNS data from a server and writes it locally using the selected
+output mode.
+
+```
+vultrunbound --client=192.168.4.1 --output=hosts --target=/etc/hosts
+vultrunbound --client=192.168.4.1 --output=unbound-control
+```
+
 * Note arguments are optional and may be placed in the configuration file alternatively
