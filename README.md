@@ -40,7 +40,8 @@ GET /hosts
 ```
 
 `/entries` returns the JSON DNS entries. `/hosts` returns hosts-file text.
-Both responses include `X-ModifiedAt` with the `.vultrdns` cache file mtime.
+Both responses include `X-ModifiedAt` with the `.vultrdns` cache file mtime
+and `X-Entry-Count` with the number of Vultr entries in the response.
 
 ### Client
 
@@ -51,5 +52,8 @@ output mode.
 vultrunbound --client=192.168.4.1 --output=hosts --target=/etc/hosts
 vultrunbound --client=192.168.4.1 --output=unbound-control
 ```
+
+Client mode refuses to update local hosts or unbound output when the server
+returns zero Vultr entries.
 
 * Note arguments are optional and may be placed in the configuration file alternatively

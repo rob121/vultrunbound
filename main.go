@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -163,7 +164,13 @@ func OutputHosts(entries []DnsEntry) {
 }
 
 func WriteHosts(hosts string) error {
-	return ioutil.WriteFile(target, []byte(hosts), 0644)
+	err := ioutil.WriteFile(target, []byte(hosts), 0644)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("Wrote hosts file to %s (%d bytes)", target, len(hosts))
+	return nil
 }
 
 func FormatHosts(entries []DnsEntry, shortMode string) string {
@@ -234,6 +241,7 @@ func RunServer() {
 	log.Printf("Loaded %d cached entries from %s", len(entries), vultrdns)
 
 	syncNow := func() {
+		log.Println("Starting Vultr sync")
 		entries, err := MakeRequest()
 		if err != nil {
 			log.Printf("Vultr sync failed: %v", err)
@@ -246,7 +254,7 @@ func RunServer() {
 		}
 
 		cache.Set(entries)
-		log.Printf("Synced %d entries from Vultr", len(entries))
+		log.Printf("Synced %d entries from Vultr and wrote cache %s", len(entries), vultrdns)
 	}
 
 	ticker := time.NewTicker(syncInterval)
@@ -265,28 +273,35 @@ func RunServer() {
 			return
 		}
 
+		entries := cache.Get()
 		setModifiedAtHeader(w)
+		setEntryCountHeader(w, len(entries))
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(cache.Get()); err != nil {
+		if err := json.NewEncoder(w).Encode(entries); err != nil {
 			log.Printf("Unable to encode entries: %v", err)
 		}
+		log.Printf("Served /entries with %d entries to %s", len(entries), r.RemoteAddr)
 	})
 	mux.HandleFunc("/hosts", func(w http.ResponseWriter, r *http.Request) {
 		if !requireGet(w, r) {
 			return
 		}
 
+		entries := cache.Get()
 		shortMode := short
 		if requestedShort := r.URL.Query().Get("short"); requestedShort != "" {
 			shortMode = requestedShort
 		}
 
+		hosts := FormatHosts(entries, shortMode)
 		setModifiedAtHeader(w)
+		setEntryCountHeader(w, len(entries))
 		w.Header().Set("Content-Type", "text/plain")
-		_, err := w.Write([]byte(FormatHosts(cache.Get(), shortMode)))
+		_, err := w.Write([]byte(hosts))
 		if err != nil {
 			log.Printf("Unable to write hosts response: %v", err)
 		}
+		log.Printf("Served /hosts with %d entries and %d bytes to %s", len(entries), len(hosts), r.RemoteAddr)
 	})
 
 	log.Printf("Server listening on %s; syncing every %s; cache %s", listen, syncInterval, vultrdns)
@@ -296,6 +311,15 @@ func RunServer() {
 func RunClient() error {
 	switch output {
 	case "hosts":
+		entries, err := FetchEntries()
+		if err != nil {
+			return err
+		}
+		if err := requireClientEntries(entries, "overwrite "+target); err != nil {
+			return err
+		}
+		log.Printf("Client verified %d entries before writing hosts output", len(entries))
+
 		hosts, err := FetchHosts()
 		if err != nil {
 			return err
@@ -306,11 +330,24 @@ func RunClient() error {
 		if err != nil {
 			return err
 		}
+		if err := requireClientEntries(entries, "apply unbound-control output"); err != nil {
+			return err
+		}
+
+		log.Printf("Applying %d entries using unbound-control", len(entries))
 		OutputUnboundControl(entries)
 		return nil
 	default:
 		return fmt.Errorf("unknown output mode: %s", output)
 	}
+}
+
+func requireClientEntries(entries []DnsEntry, action string) error {
+	if len(entries) == 0 {
+		return fmt.Errorf("server returned 0 entries; refusing to %s", action)
+	}
+
+	return nil
 }
 
 func LoadVultrDNS() ([]DnsEntry, error) {
@@ -342,6 +379,7 @@ func FetchEntries() ([]DnsEntry, error) {
 		return nil, err
 	}
 
+	log.Printf("Fetching entries from %s", endpoint)
 	resp, err := http.Get(endpoint)
 	if err != nil {
 		return nil, err
@@ -357,6 +395,7 @@ func FetchEntries() ([]DnsEntry, error) {
 		return nil, err
 	}
 
+	log.Printf("Fetched %d entries from %s", len(entries), endpoint)
 	return entries, nil
 }
 
@@ -368,6 +407,7 @@ func FetchHosts() (string, error) {
 		return "", err
 	}
 
+	log.Printf("Fetching hosts from %s", endpoint)
 	resp, err := http.Get(endpoint)
 	if err != nil {
 		return "", err
@@ -383,6 +423,7 @@ func FetchHosts() (string, error) {
 		return "", err
 	}
 
+	log.Printf("Fetched hosts from %s (%d bytes)", endpoint, len(data))
 	return string(data), nil
 }
 
@@ -427,6 +468,10 @@ func setModifiedAtHeader(w http.ResponseWriter) {
 	}
 
 	w.Header().Set("X-ModifiedAt", info.ModTime().UTC().Format(time.RFC3339))
+}
+
+func setEntryCountHeader(w http.ResponseWriter, count int) {
+	w.Header().Set("X-Entry-Count", strconv.Itoa(count))
 }
 
 //Its imporant we remove any zones that were once present, so we need to diff, meaning we keep a cache//

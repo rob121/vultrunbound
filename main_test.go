@@ -4,6 +4,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -95,5 +96,26 @@ func TestSetModifiedAtHeader(t *testing.T) {
 	want := "2026-06-09T12:34:56Z"
 	if got != want {
 		t.Fatalf("X-ModifiedAt = %q, want %q", got, want)
+	}
+}
+
+func TestSetEntryCountHeader(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	setEntryCountHeader(recorder, 7)
+
+	got := recorder.Header().Get("X-Entry-Count")
+	if got != "7" {
+		t.Fatalf("X-Entry-Count = %q, want %q", got, "7")
+	}
+}
+
+func TestRequireClientEntriesRefusesEmptyEntries(t *testing.T) {
+	err := requireClientEntries(nil, "overwrite /tmp/hosts")
+	if err == nil {
+		t.Fatal("requireClientEntries() succeeded, want error")
+	}
+
+	if !strings.Contains(err.Error(), "server returned 0 entries") {
+		t.Fatalf("requireClientEntries() error = %q, want zero-entry refusal", err)
 	}
 }
